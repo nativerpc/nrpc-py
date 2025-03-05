@@ -4,8 +4,7 @@ setup(
     name='nrpc-py',
     version='1.0.1',
     packages=[
-        'nrpc_py',
-        'nrpc_cli'
+        'nrpc_py'
     ],
     install_requires=[
         'pyzmq',
@@ -21,11 +20,5 @@ setup(
         'License :: OSI Approved :: MIT License',
         'Operating System :: OS Independent',
     ],
-    python_requires='>=3.6',
-    entry_points={
-        'console_scripts': [
-            'term = nrpc_cli.term:start',
-            'show = nrpc_cli.show:start',
-        ],
-    }
+    python_requires='>=3.6'
 )
