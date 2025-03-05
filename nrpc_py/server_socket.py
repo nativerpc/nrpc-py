@@ -1,27 +1,28 @@
-######################
-#  Contents:
+#
+#   Contents:
 #
 #       ServerSocket
 #           __init__
 #           bind
 #           get_client_change
-#           get_client_ids
-#           get_clients
-#           get_client_info
 #           recv_norm
 #           send_norm
 #           send_rev
 #           recv_rev
 #           _add_client
 #           _track_client
+#           _recv_norm_step
+#           _recv_rev_step
 #           _get_buffer
 #           _forward_call
+#           get_client_ids
+#           get_client_full
+#           get_client_info
 #           add_metadata
 #           update
 #           wait
 #           close
 #
-
 import datetime
 import json
 import base64
@@ -50,6 +51,8 @@ class ServerSocket:
     zmq_monitor_thread: threading.Thread
     request_lock: threading.Lock
     is_alive: bool
+    norm_messages_: list[bytes]
+    rev_messages_: list[bytes]
 
     def __init__(self, ip_address, port, port_rev, entry_file):
         self.server_id = 0
@@ -57,7 +60,6 @@ class ServerSocket:
         self.port = port
         self.port_rev = port_rev
         self.entry_file = entry_file
-        self.server_id = 0
         self.next_index = 0
         self.server_signature = b'server:0'
         self.server_signature_rev = b'rev:server:0'
@@ -77,6 +79,8 @@ class ServerSocket:
 
         self.request_lock = threading.Lock()
         self.is_alive = True
+        self.norm_messages_ = []
+        self.rev_messages_ = []
 
         self.zmq_context = None
         self.zmq_server = None
@@ -103,61 +107,25 @@ class ServerSocket:
         self.zmq_server.bind(f'tcp://{self.ip_address}:{self.port}')
         self.zmq_server_rev.bind(f'tcp://{self.ip_address}:{self.port_rev}')
 
-    def get_client_change(self, timeout, expected_clients):
+    def get_client_change(self, timeout_seconds, expected_clients):
         """New clients are first added to self.clients, later they show up in self.get_client_ids()."""
         start = time.time()
         while True:
             client_ids = self.get_client_ids()
             if set(client_ids) != set(expected_clients):
                 return True
-            if timeout == 0:
+            if timeout_seconds == 0:
                 break
             time.sleep(0.05)
-            if time.time() - start > timeout:
+            if time.time() - start > timeout_seconds:
                 break
         return False
 
-    def get_client_ids(self):
-        result = []
-        for client in self.clients:
-            if client.is_lost:
-                continue
-            if client.client_signature_rev is None:
-                continue
-            if not client.is_validated:
-                continue
-            peer_state = zmq.backend.cython._zmq._zmq_socket_get_peer_state(
-                self.zmq_server, client.client_signature) + 1
-            peer_state_rev = zmq.backend.cython._zmq._zmq_socket_get_peer_state(
-                self.zmq_server_rev, client.client_signature_rev) + 1
-            if peer_state == 0 or peer_state_rev == 0:
-                client.is_lost = True
-                # print(f'Lost client: {client_id}')
-                continue
-            result.append(client.client_id)
-        return result
-
-    def get_clients(self) -> list[ClientInfo]:
-        return self.clients
-
-    def get_client_info(self, client_id):
-        client = find(self.clients, lambda x: x.client_id == client_id)
-        return client
-
     def recv_norm(self):
         while self.is_alive:
-            req = None
-            try:
-                req = self.zmq_server.recv_multipart(zmq.DONTWAIT)
-            except zmq.error.Again:
-                pass
-            if not self.is_alive:
-                break
-            if not req:
-                time.sleep(0.05)
+            req = self._recv_norm_step()
+            if req is None:
                 continue
-
-            assert len(req) == 3
 
             if req[1] == ServerMessage.AddClient:
                 self._add_client(req)
@@ -215,32 +183,15 @@ class ServerSocket:
         if client.is_lost:
             # print(f'Old client: {client_id}')
             return None
+        
         resp = None
-        while True:
-            if not self.is_alive:
-                raise RuntimeError('Server connection lost')
-            if client.is_lost:
-                raise RuntimeError('Client connection lost')
-            try:
-                resp = self.zmq_server_rev.recv_multipart(zmq.DONTWAIT)
-                break
-            except zmq.error.Again:
-                pass
-            time.sleep(0.1)
-            peer_state = zmq.backend.cython._zmq._zmq_socket_get_peer_state(
-                self.zmq_server, client.client_signature) + 1
-            peer_state_rev = zmq.backend.cython._zmq._zmq_socket_get_peer_state(
-                self.zmq_server_rev, client.client_signature_rev) + 1
-            if peer_state == 0 or peer_state_rev == 0:
-                client.is_lost = True
-                # print(f'Lost client: {client_id}')
-                return None
-        if len(resp) != 3 or resp[0] is None:
-            raise RuntimeError(
-                f'Received invalid message: {len(resp)}, {client_id}, {resp[1] if 1 < len(resp) else "-"}')
-        assert resp[0] == client.client_signature_rev, \
-            f'Recv_Rev signature mismatch: {resp[0]}, {client.client_signature_rev}'
-        return resp[2]
+        while self.is_alive and not client.is_lost:
+            resp = self._recv_rev_step(client)
+            if resp is None:
+                continue
+            break
+        
+        return resp[2] if resp else None
 
     def _add_client(self, req):
         self.next_index += 1
@@ -317,6 +268,86 @@ class ServerSocket:
             #     parts[1],
             # )
 
+    def _recv_norm_step(self):
+        ready = False
+        ready_timeout = False
+
+        while self.is_alive:
+            self.zmq_server.setsockopt(zmq.RCVTIMEO, 100)
+            msg = None
+            try:
+                msg = self.zmq_server.recv()
+            except zmq.error.Again:
+                ready_timeout = True
+            finally:
+                if not self.is_alive:
+                    break
+                self.zmq_server.setsockopt(zmq.RCVTIMEO, -1)
+
+            if not self.is_alive:
+                break
+            if ready_timeout:
+                break
+
+            assert msg
+            self.norm_messages_.append(msg)
+            if not self.zmq_server.getsockopt(zmq.RCVMORE):
+                ready = True
+                break
+
+        if not ready:
+            return None
+
+        messages = [*self.norm_messages_]
+        while self.norm_messages_:
+            self.norm_messages_.pop()
+        assert len(messages) == 3
+        return messages
+    
+    def _recv_rev_step(self, client):
+        ready = False
+        ready_timeout = False
+
+        while self.is_alive and not client.is_lost:
+            self.zmq_server_rev.setsockopt(zmq.RCVTIMEO, 100)
+            msg = None
+            try:
+                msg = self.zmq_server_rev.recv()
+            except zmq.error.Again:
+                ready_timeout = True
+            finally:
+                if not (self.is_alive and not client.is_lost):
+                    break
+                self.zmq_server_rev.setsockopt(zmq.RCVTIMEO, -1)
+
+            if not (self.is_alive and not client.is_lost):
+                break
+            if ready_timeout:
+                peer_state = zmq.backend.cython._zmq._zmq_socket_get_peer_state(self.zmq_server, client.client_signature) + 1
+                peer_state_rev = zmq.backend.cython._zmq._zmq_socket_get_peer_state(self.zmq_server_rev, client.client_signature_rev) + 1
+                if peer_state == 0 or peer_state_rev == 0:
+                    client.is_lost = True
+                    # print(f'Lost client: {client_id}')
+                    break
+                break
+
+            assert msg
+            self.rev_messages_.append(msg)
+            if not self.zmq_server_rev.getsockopt(zmq.RCVMORE):
+                ready = True
+                break
+
+        if not ready:
+            return None
+
+        messages = [*self.rev_messages_]
+        while self.rev_messages_:
+            self.rev_messages_.pop()
+        assert len(messages) == 3
+        assert messages[0] == client.client_signature_rev, \
+            f'Recv_wait_rev signature mismatch: {messages[0]}, {client.client_signature_rev}'
+        return messages
+
     def _get_buffer(self, value):
         if isinstance(value, str):
             return value.encode()
@@ -351,6 +382,33 @@ class ServerSocket:
             f'fwd_response:{method_name}'.encode(),
             json.dumps(res).encode()
         ])
+
+    def get_client_ids(self):
+        result = []
+        for client in self.clients:
+            if client.is_lost:
+                continue
+            if client.client_signature_rev is None:
+                continue
+            if not client.is_validated:
+                continue
+            peer_state = zmq.backend.cython._zmq._zmq_socket_get_peer_state(
+                self.zmq_server, client.client_signature) + 1
+            peer_state_rev = zmq.backend.cython._zmq._zmq_socket_get_peer_state(
+                self.zmq_server_rev, client.client_signature_rev) + 1
+            if peer_state == 0 or peer_state_rev == 0:
+                client.is_lost = True
+                # print(f'Lost client: {client_id}')
+                continue
+            result.append(client.client_id)
+        return result
+
+    def get_client_full(self) -> list[ClientInfo]:
+        return self.clients
+
+    def get_client_info(self, client_id):
+        client = find(self.clients, lambda x: x.client_id == client_id)
+        return client
 
     def add_metadata(self, obj: dict[str, any]):
         for key, value in obj.items():

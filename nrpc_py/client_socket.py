@@ -10,6 +10,8 @@
 #           send_rev
 #           _validate_client
 #           _track_client
+#           _recv_norm_step
+#           _recv_rev_step
 #           _get_buffer
 #           add_metadata
 #           is_validated
@@ -45,11 +47,14 @@ class ClientSocket:
     last_error: any
     metadata: SocketMetadataInfo
     server_metadata: SocketMetadataInfo
+    zmq_context: zmq.Context
     zmq_client: zmq.Socket
     zmq_client_rev: zmq.Socket
     zmq_monitor: zmq.Socket
     zmq_monitor_thread: threading.ThreadError
     request_lock: threading.Lock
+    norm_messages_: list[bytes]
+    rev_messages_: list[bytes]
 
     def __init__(self, ip_address, port, port_rev, entry_file):
         self.client_id = 0
@@ -84,6 +89,8 @@ class ClientSocket:
         self.zmq_monitor = None
         self.zmq_monitor_thread = None
         self.request_lock = threading.Lock()
+        self.norm_messages_ = []
+        self.rev_messages_ = []
 
     def connect(self):
         assert not self.is_validated_
@@ -109,7 +116,15 @@ class ClientSocket:
                 ServerMessage.AddClient,
                 json.dumps(self.metadata).encode()
             ])
-            resp = self.zmq_client.recv_multipart()
+            # See also: resp = self.zmq_client.recv_multipart()
+            resp = None
+            while self.is_alive:
+                resp = self._recv_norm_step()
+                if resp is None:
+                    continue
+                break
+            if not self.is_alive:
+                return
 
         assert resp[1] == ServerMessage.ClientAdded
         resp = json.loads(resp[2].decode())
@@ -129,10 +144,13 @@ class ClientSocket:
         zmq_client_rev.connect(f'tcp://{self.ip_address}:{self.port_rev}')
 
         self.zmq_client_rev = zmq_client_rev
+                
+        while self.is_alive and not self.is_lost:
+            # See also: req = self.zmq_client_rev.recv_multipart()
+            req = self._recv_rev_step()
+            if req is None:
+                continue
 
-        while True:
-            req = self.zmq_client_rev.recv_multipart()
-            assert len(req) == 3
             if req[1] == ServerMessage.ValidateClient:
                 self._validate_client(req)
                 break
@@ -158,47 +176,48 @@ class ClientSocket:
         self.zmq_client.send_multipart(req)
 
     def recv_norm(self):
-        rep = self.zmq_client.recv_multipart()
-        assert len(rep) == 3
-        assert rep[2] != b'null', 'Invalid null response'
+        # See also: resp = self.zmq_client.recv_multipart()
+        resp = None
+        while self.is_alive:
+            resp = self._recv_norm_step()
+            if resp is None:
+                continue
+            break
+        if not self.is_alive:
+            return None
+        assert len(resp) == 3
+        assert resp[2] != b'null', 'Invalid null response'
         # TODO: getting empty buffer when client is lost
-        assert rep[2][0] == b'{'[0] or rep[2][0] == b'['[0], f'Invalid json: {rep[2]}'
-        return rep[2]
+        assert resp[2][0] == b'{'[0] or resp[2][0] == b'['[0], f'Invalid json: {resp[2]}'
+        return resp[2]
 
-    def recv_rev(self, timeout=0):
+    def recv_rev(self, timeout_seconds=0):
         if not self.is_validated_:
             time.sleep(0.1)
             if not self.is_validated_:
                 return None
 
-        started = time.time()
         req = None
-        while self.is_alive:
-            parts = []
-            try:
-                parts.append(self.zmq_client_rev.recv(zmq.DONTWAIT, copy=True, track=False))
-            except zmq.error.Again:
-                pass
-            if not parts or not parts[0]:
-                time.sleep(0.05)
-                if timeout > 0 and time.time() - started > timeout:
-                    return None
+        started = time.time()
+        while self.is_alive and not self.is_lost:
+            if timeout_seconds > 0 and time.time() - started > timeout_seconds:
+                break
+            # See also: req = self.zmq_client_rev.recv_multipart()
+            req = self._recv_rev_step()
+            if req is None:
                 continue
 
-            while self.zmq_client_rev.getsockopt(zmq.RCVMORE):
-                part = self.zmq_client_rev.recv(0, copy=True, track=False)
-                parts.append(part)
-
-            req = parts
-
-            assert len(req) == 3
             if req[1] == ServerMessage.ValidateClient:
                 assert False, f'Second validation! {self.client_id}'
                 self._validate_client(req)
             else:
                 break
 
-        return req[1:3] if req else None
+        if not (self.is_alive and not self.is_lost):
+            return None
+        if not req:
+            return None
+        return req[1:3]
 
     def send_rev(self, response):
         assert self.zmq_client_rev is not None
@@ -254,6 +273,82 @@ class ClientSocket:
             #     parts[1]
             # )
 
+    def _recv_norm_step(self):
+        ready = False
+        ready_timeout = False
+
+        while self.is_alive:
+            self.zmq_client.setsockopt(zmq.RCVTIMEO, 100)
+            msg = None
+            try:
+                msg = self.zmq_client.recv()
+            except zmq.error.Again:
+                ready_timeout = True
+            finally:
+                if not self.is_alive:
+                    break
+                self.zmq_client.setsockopt(zmq.RCVTIMEO, -1)
+            if not self.is_alive:
+                break
+            
+            if ready_timeout:
+                break
+
+            assert msg
+            self.norm_messages_.append(msg)
+            if not self.zmq_client.getsockopt(zmq.RCVMORE):
+                ready = True
+                break
+
+        if not ready:
+            return None
+
+        messages = [*self.norm_messages_]
+        while len(self.norm_messages_) > 0:
+            self.norm_messages_.pop()
+        assert len(messages) == 3
+        assert messages[0] == self.server_signature, \
+            f'Recv_wait_norm signature mismatch: {messages[0]}, {self.server_signature}'
+        return messages
+    
+    def _recv_rev_step(self):
+        ready = False
+        ready_timeout = False
+
+        while self.is_alive and not self.is_lost:
+            self.zmq_client_rev.setsockopt(zmq.RCVTIMEO, 100)
+            msg = None
+            try:
+                msg = self.zmq_client_rev.recv()
+            except zmq.error.Again:
+                ready_timeout = True
+            finally:
+                if not (self.is_alive and not self.is_lost):
+                    break
+                self.zmq_client_rev.setsockopt(zmq.RCVTIMEO, -1)
+            if not (self.is_alive and not self.is_lost):
+                break
+            
+            if ready_timeout:
+                break
+
+            assert msg
+            self.rev_messages_.append(msg)
+            if not self.zmq_client_rev.getsockopt(zmq.RCVMORE):
+                ready = True
+                break
+
+        if not ready:
+            return None
+
+        messages = [*self.rev_messages_]
+        while len(self.rev_messages_) > 0:
+            self.rev_messages_.pop()
+        assert len(messages) == 3
+        assert messages[0] == self.server_signature_rev, \
+            f'Recv_wait_rev signature mismatch: {messages[0]}, {self.server_signature_rev}'
+        return messages
+
     def _get_buffer(self, value):
         if isinstance(value, str):
             return value.encode()
@@ -273,7 +368,7 @@ class ClientSocket:
         return self.is_validated_
 
     def wait(self):
-        while self.is_alive and self.zmq_client.poll(0):
+        while self.is_alive and not self.is_lost and self.zmq_client.poll(0):
             if self.zmq_client.closed:
                 break
             time.sleep(0.1)

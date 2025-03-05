@@ -1,5 +1,5 @@
 #
-#   Contents
+#   Contents:
 #
 #       SocketType
 #       ProtocolType
@@ -12,25 +12,29 @@
 #       ClientInfo
 #       ApplicationInfo
 #       SchemaInfo
+#       FieldType
+#       FieldNames
+#       DYNAMIC_OBJECT
 #       FieldInfo
 #       MethodInfo
 #       ClassInfo
 #       ServiceInfo
 #       ServerInfo
-#       DYNAMIC_OBJECT
-#       all_types
-#       all_services
-#       add_class_info
-#       get_types
-#       get_compiler
-#       RpcClass
+#
+#       g_all_types
+#       g_all_services
+#       register_class
+#       ClassManager
 #       rpcclass
-#       assign_values
 #       construct_item
+#       destroy_item
+#       construct_json
+#       assign_values
 #       get_class_string
 #       get_simple_type
+#
+#       init
 #       CommandLine
-#       ---
 #       is_number
 #       find
 #       find_all
@@ -38,11 +42,12 @@
 #       ctrl_handler
 #
 import os
+import sys
 import inspect
 import json
 import datetime
 from dataclasses import dataclass
-from typing import Dict, TypedDict, Type, get_args, Generic
+from typing import Dict, TypedDict, Type, get_args
 from enum import Enum
 
 
@@ -70,7 +75,6 @@ class RoutingSocketOptions:
     caller: str
     types: list
     port: int = 0
-    drop_postfix: str = ''
 
 
 class ServerMessage:
@@ -204,7 +208,26 @@ class SchemaInfo(TypedDict):
     entry_file: str
 
 
-@dataclass
+class FieldType(Enum):
+    Unknown = 0
+    Complex = 1
+    Int = 2
+    Float = 3
+    String = 4
+    Json = 5
+
+
+TypeNames = [
+    'unknown',
+    'complex',
+    'int',
+    'float',
+    'str',
+    'dict'
+]
+DYNAMIC_OBJECT = 'dict'
+
+
 class FieldInfo:
     field_name: str
     field_type: str
@@ -212,10 +235,18 @@ class FieldInfo:
     offset: int
     size: int
     local: bool
-    field_errors: str = ''
+    field_errors: str
+
+    def __init__(self, field_name: str, field_type: str, id_value: int, offset: int, size: int, local: bool):
+        self.field_name = field_name
+        self.field_type = field_type
+        self.id_value = id_value
+        self.offset = offset
+        self.size = size
+        self.local = local
+        self.field_errors = ''
 
 
-@dataclass
 class MethodInfo:
     method_name: str
     request_type: str
@@ -223,41 +254,67 @@ class MethodInfo:
     id_value: int
     handler: str
     local: bool
-    method_errors: str = ''
+    method_errors: str
+
+    def __init__(self, method_name, request_type, response_type, id_value, handler, local):
+        self.method_name = method_name
+        self.request_type = request_type
+        self.response_type = response_type
+        self.id_value = id_value
+        self.handler = handler
+        self.local = local
+        self.method_errors = ''
 
 
-@dataclass
 class ClassInfo:
     type_name: str
     fields: Dict[str, FieldInfo]
     size: int
     local: bool
     clazz: type
-    type_errors: str = ''
+    type_errors: str
+
+    def __init__(self, type_name, fields, size, local, clazz):
+        self.type_name = type_name
+        self.fields = fields
+        self.size = size
+        self.local = local
+        self.clazz = clazz
+        self.type_errors = ''
 
 
-@dataclass
 class ServiceInfo:
     service_name: str
     methods: Dict[str, MethodInfo]
     local: bool
     clazz: type
-    service_errors: str = ''
+    service_errors: str
+
+    def __init__(self, service_name, methods, local, clazz):
+        self.service_name = service_name
+        self.methods = methods
+        self.local = local
+        self.clazz = clazz
+        self.service_errors = ''
 
 
-@dataclass
 class ServerInfo:
     name: str
     service_name: str
     instance: any
     methods: Dict[str, MethodInfo]
 
+    def __init__(self, name, service_name, instance, methods):
+        self.name = name
+        self.service_name = service_name
+        self.instance = instance
+        self.methods = methods
 
-DYNAMIC_OBJECT = 'dict'
-all_types: Dict[str, ClassInfo] = {}
-all_services: Dict[str, ServiceInfo] = {}
 
-all_types[DYNAMIC_OBJECT] = ClassInfo(
+g_all_types: Dict[str, ClassInfo] = {}
+g_all_services: Dict[str, ServiceInfo] = {}
+
+g_all_types[DYNAMIC_OBJECT] = ClassInfo(
     type_name=DYNAMIC_OBJECT,
     fields={},
     size=-1,
@@ -266,8 +323,8 @@ all_types[DYNAMIC_OBJECT] = ClassInfo(
 )
 
 
-def add_class_info(clazz: Type, pending_fields: dict):
-    global all_types, all_services
+def register_class(clazz: Type, pending_fields: dict):
+    global g_all_types, g_all_services
 
     type_name = clazz.__name__
     inst = clazz()
@@ -280,7 +337,7 @@ def add_class_info(clazz: Type, pending_fields: dict):
     missing_methods = [x for x in list(class_methods) if not x.startswith('_')]
     typed_fields = inspect.get_annotations(clazz)
 
-    assert not (type_name in all_types), f'Duplicate type: {type_name}'
+    assert not (type_name in g_all_types), f'Duplicate type: {type_name}'
     assert missing_fields or missing_methods
 
     if missing_fields:
@@ -302,7 +359,7 @@ def add_class_info(clazz: Type, pending_fields: dict):
 
         assert len(missing_fields) == 0, f'Unused fields! {type_name}, {missing_fields}'
 
-        all_types[type_name] = ClassInfo(
+        g_all_types[type_name] = ClassInfo(
             type_name=type_name,
             fields=field_infos,
             size=-1,
@@ -325,12 +382,12 @@ def add_class_info(clazz: Type, pending_fields: dict):
                     continue
                 req_type = get_simple_type(param_info.annotation)
                 req_type_nl = req_type[0: len(req_type) - 2] if req_type.endswith('[]') else req_type
-                assert req_type_nl in all_types, \
+                assert req_type_nl in g_all_types, \
                     f'Unknown parameter type! {req_type}'
                 break
             ret_type = get_simple_type(sig.return_annotation)
             ret_type_nl = ret_type[0: len(ret_type) - 2] if ret_type.endswith('[]') else ret_type
-            assert ret_type_nl in all_types
+            assert ret_type_nl in g_all_types
             method_infos[key] = MethodInfo(
                 method_name=key,
                 request_type=req_type,
@@ -342,7 +399,7 @@ def add_class_info(clazz: Type, pending_fields: dict):
 
         assert len(missing_methods) == 0, f'Undeclared methods! {type_name}, {missing_methods}'
 
-        all_services[type_name] = ServiceInfo(
+        g_all_services[type_name] = ServiceInfo(
             service_name=type_name,
             methods=method_infos,
             local=True,
@@ -350,43 +407,63 @@ def add_class_info(clazz: Type, pending_fields: dict):
         )
 
 
-def get_types():
-    return all_types
-
-
-def get_compiler():
-    return "python"
-
-
-class RpcClass():
+class ClassManager():
     def __init__(self, fields: Dict):
         self.pending_fields_ = fields
 
     def __call__(self, clazz):
         clazz = dataclass(clazz)
-        add_class_info(clazz, self.pending_fields_)
+        register_class(clazz, self.pending_fields_)
         return clazz
 
 
 def rpcclass(fields_or_class=None):
     if isinstance(fields_or_class, type):
         clazz = fields_or_class
-        return RpcClass({})(clazz)
+        return ClassManager({})(clazz)
     else:
         fields = fields_or_class
-        return RpcClass(fields)
+        return ClassManager(fields)
+
+
+def construct_item(type_name, args):
+    global g_all_types
+    if type_name.endswith('[]'):
+        child_type = type_name[0: len(type_name) - 2]
+        assert child_type in g_all_types
+        assert isinstance(args, list)
+        result = []
+        for item in args:
+            result.append(construct_item(child_type, item))
+        return result
+
+    assert type_name in g_all_types
+    info = g_all_types[type_name]
+    result = info.clazz()
+    assign_values(type_name, result, args, 0)
+    return result
+
+
+def destroy_item(type_name, args):
+    assert False
+
+
+def construct_json(item):
+    json_data = {}
+    assign_values(type(item).__name__, item, json_data, 1)
+    return json_data
 
 
 def assign_values(type_name, obj_data, json_data, target):
-    global all_types
-    
+    global g_all_types
+
     if type_name.endswith('[]'):
         type_name_nl = type_name[0: len(type_name) - 2]
         assert isinstance(obj_data, list)
         assert isinstance(json_data, list)
 
-        if type_name_nl in all_types:
-            class_info_nl = all_types[type_name_nl]
+        if type_name_nl in g_all_types:
+            class_info_nl = g_all_types[type_name_nl]
             assert class_info_nl
             if target == 0:
                 obj_data.clear()
@@ -400,7 +477,7 @@ def assign_values(type_name, obj_data, json_data, target):
                     child_data = {}
                     assign_values(type_name_nl, item, child_data, 1)
                     json_data.append(child_data)
-                
+
         else:
             assert type_name_nl in ['int', 'float', 'bool', 'str'], \
                 f'Mismatch array type: {type_name_nl}'
@@ -413,8 +490,8 @@ def assign_values(type_name, obj_data, json_data, target):
                 json_data.extend(obj_data)
         return
 
-    assert type_name in all_types
-    class_info = all_types[type_name]
+    assert type_name in g_all_types
+    class_info = g_all_types[type_name]
 
     if type_name == DYNAMIC_OBJECT:
         if target == 0:
@@ -446,8 +523,8 @@ def assign_values(type_name, obj_data, json_data, target):
                     json_data[item.field_name] = []
                     assign_values(item.field_type, child_data, json_data[item.field_name], 1)
 
-        elif item.field_type in all_types:
-            child_type = all_types[item.field_type]
+        elif item.field_type in g_all_types:
+            child_type = g_all_types[item.field_type]
             assert item.field_name in obj_data.__dict__
             if target == 0 and obj_data.__dict__[item.field_name] is None:
                 obj_data.__dict__[item.field_name] = child_type.clazz()
@@ -491,30 +568,12 @@ def assign_values(type_name, obj_data, json_data, target):
             assert False, f'Unknown field type: {item.field_type}, {item.field_name}, {class_info.type_name}'
 
 
-def construct_item(type_name, args):
-    global all_types
-    if type_name.endswith('[]'):
-        child_type = type_name[0: len(type_name) - 2]
-        assert child_type in all_types
-        assert isinstance(args, list)
-        result = []
-        for item in args:
-            result.append(construct_item(child_type, item))
-        return result
-
-    assert type_name in all_types
-    info = all_types[type_name]
-    result = info.clazz()
-    assign_values(type_name, result, args, 0)
-    return result
-
-
 def get_class_string(type_name, obj_data):
-    global all_types
+    global g_all_types
     if type_name.endswith('[]'):
         result = '['
         child_type = type_name[0: len(type_name) - 2]
-        assert child_type in all_types
+        assert child_type in g_all_types
         assert isinstance(obj_data, list)
         for item in obj_data:
             if len(result) > 30:
@@ -528,8 +587,8 @@ def get_class_string(type_name, obj_data):
         result += ']'
         return result
 
-    assert type_name in all_types
-    info = all_types[type_name]
+    assert type_name in g_all_types
+    info = g_all_types[type_name]
     result = f'{type_name}('
 
     for key, field_info in info.fields.items():
@@ -539,7 +598,7 @@ def get_class_string(type_name, obj_data):
 
         value = getattr(obj_data, key)
 
-        if field_info.field_type in all_types:
+        if field_info.field_type in g_all_types:
             result += f'{get_class_string(field_info.field_type, value)}, '
 
         elif field_info.field_type == 'string':
@@ -562,12 +621,18 @@ def get_simple_type(item):
         return item.__name__
 
 
-class CommandLine(Dict[str, str]):
-    def __init__(self, line, fields):
+def init():
+    """Initialize NPRC library"""
+    pass
+
+
+class CommandLine(Dict[str, any]):
+    def __init__(self, fields: Dict[str, any]):
         for name, value in fields.items():
             self[name] = value
 
-        for item in line[1:]:
+        cmd_line = sys.argv
+        for item in cmd_line[1:]:
             if '=' not in item or item.startswith('-'):
                 continue
             key = item[0: item.index('=')]
@@ -577,7 +642,19 @@ class CommandLine(Dict[str, str]):
                 value = int(value)
             elif field_type == 'float':
                 value = float(value)
+            elif field_type == 'bool':
+                value = value in ['1', 'true', 'True']
             assert key in fields, f'Unknown command line field: {key}'
+            self[key] = value
+
+        for item in cmd_line[1:]:
+            if not item.startswith('--'):
+                continue
+            key = item[2:]
+            value = True
+            assert key in fields, f'Unknown command line field: {key}'
+            field_type = type(fields[key]).__name__ if key in fields else None
+            assert field_type == 'bool'
             self[key] = value
 
     def as_string(self, delim=' '):
@@ -636,4 +713,3 @@ if os.name == 'nt':
             return 1
         return 0
     ctypes.windll.kernel32.SetConsoleCtrlHandler(_ctrl_handler, True)
-

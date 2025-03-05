@@ -1,6 +1,6 @@
 # Native RPC Communication Library
 
-Cross-platform and cross-language communication library in Python. Part of larger [Native RPC](https://nativerpc.com) framework.
+Cross-platform and cross-language communication library in Python. Part of larger [Native RPC](https://github.com/nativerpc) framework. See [README.md](https://github.com/nativerpc/nrpc-examples) in nrpc-examples project for more information.
 
 # Prerequisites
 

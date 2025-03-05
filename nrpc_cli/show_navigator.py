@@ -268,14 +268,14 @@ class ShowNavigator:
                     f' {arrow} '
                     f'{node_index}. {color}SERVER{reset} host={app_info["ip_address"]} '
                     f'port={y}{app_info["server_id"]}{r} '
-                    f'id={y}{app_info["entry_file"]}{r} error={error_text}'
+                    f'name={y}{app_info["entry_file"]}{r} error={error_text}'
                 )
             else:
                 lines.append(
                     f' {arrow} '
                     f'{node_index}. {color}CLIENT{reset} host={app_info["ip_address"]} '
-                    f'port={y}{app_info["server_id"]}{r} num={y}#{app_info["client_id"]}{r} '
-                    f'id={y}{app_info['entry_file']}{r} error={error_text}'
+                    f'port={y}{app_info["server_id"]}{r} client={y}#{app_info["client_id"]}{r} '
+                    f'name={y}{app_info['entry_file']}{r} error={error_text}'
                 )
         self.selected_counts[0] = node_index
 

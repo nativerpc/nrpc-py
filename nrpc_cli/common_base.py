@@ -22,6 +22,7 @@
 #       get_dict_text
 #       is_number
 #       get_line_nonblock
+#       ctrl_handler
 #
 import os
 import sys
@@ -35,7 +36,6 @@ if os.name == 'nt':
     import msvcrt
 else:
     import termios
-from nrpc_py import ctrl_handler  # noqa
 
 LAUNCHER_PORT = 8900
 
@@ -314,3 +314,22 @@ def get_line_nonblock(output):
     #     if rlist:
     #         return output.readline().decode().rstrip('\r\n')
     #     return None
+
+
+def ctrl_handler():
+    pass
+
+
+if os.name == 'nt':
+    import ctypes
+    CTRL_C_EVENT = 0
+    # ctypes.windll.kernel32.SetConsoleCtrlHandler(None, False)
+
+    @ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_ulong)
+    def _ctrl_handler(event):
+        if event == CTRL_C_EVENT:
+            print('Keyboard exit')
+            os._exit(0)
+            return 1
+        return 0
+    ctypes.windll.kernel32.SetConsoleCtrlHandler(_ctrl_handler, True)

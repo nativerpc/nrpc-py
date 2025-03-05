@@ -1,5 +1,5 @@
 #
-#  Contents:
+#   Contents:
 #
 #       RoutingSocket
 #           __init__
@@ -23,7 +23,6 @@
 #           _find_new_fields
 #           _find_new_methods
 #           _find_missing_methods
-#           _toggle_postfix
 #           wait
 #           close
 #
@@ -49,11 +48,10 @@ from .common_base import (
     RoutingMessage,
     ServerMessage,
     DYNAMIC_OBJECT,
-    all_types,
-    all_services,
+    g_all_types,
+    g_all_services,
     get_simple_type,
     assign_values,
-    construct_item,
     find,
     find_all,
 )
@@ -68,7 +66,6 @@ class RoutingSocket:
     protocol_type: ProtocolType
     format_type: FormatType
     entry_file: str
-    drop_postfix: str
     ip_address: str
     port: int
     is_alive: bool
@@ -78,7 +75,6 @@ class RoutingSocket:
     known_types: Dict[str, ClassInfo]
     known_services: Dict[str, ServiceInfo]
     known_servers: Dict[str, ServerInfo]
-    postfix_mapping: Dict[str, str]
     call_count: int
     do_sync: bool
     is_ready: bool
@@ -90,7 +86,6 @@ class RoutingSocket:
         self.ip_address = ''
         self.port = options.port
         self.entry_file = os.path.basename(options.caller)
-        self.drop_postfix = options.drop_postfix
         self.socket = None
         self.processor = None
         self.is_alive = True
@@ -99,12 +94,12 @@ class RoutingSocket:
         self.known_types = {}
         self.known_services = {}
         self.known_servers = {}
-        self.postfix_mapping = {}
+        # self.postfix_mapping = {}
         self.call_count = 0
         self.do_sync = False
         self.is_ready = False
 
-        self.known_types[DYNAMIC_OBJECT] = all_types[DYNAMIC_OBJECT]
+        self.known_types[DYNAMIC_OBJECT] = g_all_types[DYNAMIC_OBJECT]
         self._add_types(options.types)
 
         assert self.known_types[DYNAMIC_OBJECT]
@@ -231,7 +226,7 @@ class RoutingSocket:
         assert client_id in self.server_socket.get_client_ids()
         server_name = method_name.split('.')[0]
         method_name2 = method_name.split('.')[1]
-        method_name3 = f'{self._toggle_postfix(server_name)}.{method_name2}'
+        method_name3 = f'{server_name}.{method_name2}'
         is_untyped = isinstance(params, dict)
 
         # Using statically typed input/output claseses
@@ -290,7 +285,7 @@ class RoutingSocket:
         # print(f'Calling {self.call_count}, {server_name}.{method_name}') #, {req_data}')
         server_name = method_name.split('.')[0]
         method_name2 = method_name.split('.')[1]
-        method_name3 = f'{self._toggle_postfix(server_name)}.{method_name2}'
+        method_name3 = f'{server_name}.{method_name2}'
         is_untyped = isinstance(params, dict)
 
         # Using statically typed input/output claseses
@@ -392,16 +387,16 @@ class RoutingSocket:
                     type_name in self.known_servers:
                 continue
 
-            if self.drop_postfix and type_name.endswith(self.drop_postfix):
-                base_name = type_name.replace(self.drop_postfix, '')
-                self.postfix_mapping[type_name] = base_name
-                self.postfix_mapping[base_name] = type_name
-                self.postfix_mapping[type_name+'[]'] = base_name+'[]'
-                self.postfix_mapping[base_name+'[]'] = type_name+'[]'
+            # if self.drop_postfix and type_name.endswith(self.drop_postfix):
+            #     base_name = type_name.replace(self.drop_postfix, '')
+            #     self.postfix_mapping[type_name] = base_name
+            #     self.postfix_mapping[base_name] = type_name
+            #     self.postfix_mapping[type_name+'[]'] = base_name+'[]'
+            #     self.postfix_mapping[base_name+'[]'] = type_name+'[]'
 
-            if type_name in all_types:
-                assert all_types[type_name].fields
-                type_info = all_types[type_name]
+            if type_name in g_all_types:
+                assert g_all_types[type_name].fields
+                type_info = g_all_types[type_name]
                 self.known_types[type_name] = ClassInfo(
                     type_name=type_name,
                     fields={**type_info.fields},
@@ -410,9 +405,9 @@ class RoutingSocket:
                     clazz=clazz,
                 )
 
-            elif type_name in all_services:
-                assert all_services[type_name].methods
-                service_info = all_services[type_name]
+            elif type_name in g_all_services:
+                assert g_all_services[type_name].methods
+                service_info = g_all_services[type_name]
                 self.known_services[type_name] = ServiceInfo(
                     service_name=type_name,
                     methods={**service_info.methods},
@@ -436,57 +431,57 @@ class RoutingSocket:
         for method_name, method_info in service_info.methods.items():
             handler = None
             service_sig = None
-            sig = None
+            server_sig = None
             if hasattr(type(server_instance), method_name):
                 handler = getattr(type(server_instance), method_name)
                 service_sig = inspect.signature(getattr(service_info.clazz, method_name))
-                sig = inspect.signature(handler)
+                server_sig = inspect.signature(handler)
             else:
                 handler = getattr(service_info.clazz, method_name)
                 service_sig = inspect.signature(getattr(service_info.clazz, method_name))
-                sig = inspect.signature(handler)
+                server_sig = inspect.signature(handler)
             service_req_type = None
-            req_type = None
+            server_req_type = None
             for key, item3 in service_sig.parameters.items():
                 if key == 'self':
                     continue
                 service_req_type = get_simple_type(item3.annotation)
                 break
-            for key, item3 in sig.parameters.items():
+            for key, item3 in server_sig.parameters.items():
                 if key == 'self':
                     continue
-                req_type = get_simple_type(item3.annotation)
+                server_req_type = get_simple_type(item3.annotation)
                 break
             service_res_type = get_simple_type(service_sig.return_annotation)
-            res_type = get_simple_type(sig.return_annotation)
+            server_res_type = get_simple_type(server_sig.return_annotation)
 
-            if service_req_type != req_type:
+            if service_req_type != server_req_type:
                 method_info.method_errors += \
-                    f'\nServer signature mismatch! {server_name}, {method_name}, {service_req_type}, {req_type}'
+                    f'\nServer signature mismatch! {server_name}, {method_name}, {service_req_type}, {server_req_type}'
                 continue
-            elif service_res_type != res_type:
+            elif service_res_type != server_res_type:
                 method_info.method_errors += \
-                    f'\nServer signature mismatch! {server_name}, {method_name}, {service_req_type}, {req_type}'
+                    f'\nServer signature mismatch! {server_name}, {method_name}, {service_req_type}, {server_req_type}'
                 continue
-            elif req_type != method_info.request_type:
+            elif server_req_type != method_info.request_type:
                 method_info.method_errors += \
-                    f'\nServer signature mismatch in request! {server_name}, {method_name}, {req_type}, {method_info.request_type}'
+                    f'\nServer signature mismatch in request! {server_name}, {method_name}, {server_req_type}, {method_info.request_type}'
                 continue
-            elif res_type != method_info.response_type:
+            elif server_res_type != method_info.response_type:
                 method_info.method_errors += \
-                    f'\nServer signature mismatch in response! {server_name}, {method_name}, {res_type}, {method_info.response_type}'
+                    f'\nServer signature mismatch in response! {server_name}, {method_name}, {server_res_type}, {method_info.response_type}'
                 continue
-            elif req_type not in self.known_types:
+            elif server_req_type not in self.known_types:
                 method_info.method_errors += \
-                    f'\nUnknown parameter type! {method_name}, {req_type}'
+                    f'\nUnknown parameter type! {method_name}, {server_req_type}'
                 continue
 
-            assert res_type[0:-2] if res_type.endswith('[]') else res_type in self.known_types
+            assert server_res_type[0:-2] if server_res_type.endswith('[]') else server_res_type in self.known_types
 
             methods[method_name] = MethodInfo(
                 method_name=method_name,
-                request_type=req_type,
-                response_type=res_type,
+                request_type=server_req_type,
+                response_type=server_res_type,
                 id_value=method_info.id_value,
                 handler=handler.__name__ if hasattr(type(server_instance), method_name) else '',
                 local=True
@@ -540,7 +535,7 @@ class RoutingSocket:
             if key == DYNAMIC_OBJECT:
                 continue
             types.append(SchemaInfo.SchemaTypeInfo(
-                type_name=self._toggle_postfix(key),
+                type_name=key,
                 size=-1,
                 fields=len(value.fields),
                 local=value.local,
@@ -552,9 +547,9 @@ class RoutingSocket:
             for key2, field2 in value.fields.items():
                 assert field2.field_type
                 fields.append(SchemaInfo.SchemaFieldInfo(
-                    type_name=self._toggle_postfix(key),
+                    type_name=key,
                     field_name=field2.field_name,
-                    field_type=self._toggle_postfix(field2.field_type),
+                    field_type=field2.field_type,
                     id_value=field2.id_value,
                     offset=-1,
                     size=-1,
@@ -566,7 +561,7 @@ class RoutingSocket:
         services: SchemaInfo.SchemaServiceInfo = []
         for service_name, service_info in self.known_services.items():
             services.append(SchemaInfo.SchemaServiceInfo(
-                service_name=self._toggle_postfix(service_info.service_name),
+                service_name=service_info.service_name,
                 methods=len(service_info.methods),
                 local=service_info.local,
                 has_server=service_info.service_name in self.known_servers,
@@ -578,10 +573,10 @@ class RoutingSocket:
         for service_name, service_info in self.known_services.items():
             for method_name, method_info in service_info.methods.items():
                 methods.append(SchemaInfo.SchemaMethodInfo(
-                    service_name=self._toggle_postfix(service_info.service_name),
+                    service_name=service_info.service_name,
                     method_name=method_name,
-                    request_type=self._toggle_postfix(method_info.request_type),
-                    response_type=self._toggle_postfix(method_info.response_type),
+                    request_type=method_info.request_type,
+                    response_type=method_info.response_type,
                     id_value=method_info.id_value,
                     local=method_info.local,
                     method_errors=method_info.method_errors,
@@ -664,7 +659,6 @@ class RoutingSocket:
         for server_type_info in schema['types']:
             type_name = server_type_info['type_name']
             type_fields = find_all(schema['fields'], lambda x: x['type_name'] == type_name)
-            type_name = self._toggle_postfix(type_name)
             assert type_name
             if type_name not in self.known_types:
                 pass
@@ -718,7 +712,6 @@ class RoutingSocket:
         for service_info in schema['services']:
             service_name = service_info['service_name']
             service_methods = find_all(schema['methods'], lambda x: x['service_name'] == service_name)
-            service_name = self._toggle_postfix(service_name)
             if service_name not in self.known_services:
                 pass
             else:
@@ -732,20 +725,20 @@ class RoutingSocket:
                             assert key2 == key3
                             if item2.id_value == method_info['id_value']:
                                 item2.method_errors += \
-                                    f'\nDuplicate id! {service_name}.{method_name}, {key2}, {item2.id_value}'
+                                    f'\nDuplicate id! {service_name}.{method_name}, {item2.id_value}, {method_info["id_value"]}'
                                 continue
                         to_add.append({
                             'service_name': service_name,
                             'method_name': method_name,
                             'id_value': method_info['id_value'],
                             'handler': method_name,
-                            'request_type': self._toggle_postfix(method_info['request_type']),
-                            'response_type': self._toggle_postfix(method_info['response_type']),
+                            'request_type': method_info['request_type'],
+                            'response_type': method_info['response_type'],
                         })
                     else:
                         my_method = my_service_info.methods[method_name]
                         if method_info['id_value'] != my_method.id_value:
-                            my_service_info.service_errors += \
+                            my_method.method_errors += \
                                 f'\nMethod numbering mismatch! {service_name}.{method_name}, ' \
                                 f'{method_info["id_value"]} != {my_method.id_value}'
 
@@ -770,7 +763,6 @@ class RoutingSocket:
 
     def _find_missing_methods(self, schema):
         for service_name, my_service_info in self.known_services.items():
-            service_name = self._toggle_postfix(service_name)
             remote_service_info = find(schema['services'], lambda x: x['service_name'] == service_name)
             remote_service_methods = find_all(schema['methods'], lambda x: x['service_name'] == service_name)
             if not remote_service_info:
@@ -784,11 +776,6 @@ class RoutingSocket:
                         f'\nMissing remote method! {service_name}.{method_name}'
                     continue
 
-    def _toggle_postfix(self, text):
-        if text in self.postfix_mapping:
-            return self.postfix_mapping[text]
-        return text
-    
     def wait(self):
         try:
             if self.socket_type == SocketType.BIND:
