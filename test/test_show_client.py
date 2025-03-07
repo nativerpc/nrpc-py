@@ -27,14 +27,14 @@ class HelloResponse:
 
 @rpcclass({
     'Hello': 1,
-    # 'Hello2': 2,
+    'Hello2': 2,
 })
 class HelloService:
     def Hello(self, request: HelloRequest) -> HelloResponse:
         pass
 
-    # def Hello2(self, request: HelloRequest) -> list[HelloResponse]:
-    #     pass
+    def Hello2(self, request: dict) -> dict:
+        pass
 
 
 class ClientApplication:
@@ -44,7 +44,7 @@ class ClientApplication:
         self.cmd = nrpc_py.CommandLine({
             'port': 9001,
             'from_server': False,
-            'wait': 10,
+            'wait': 1000,
             'rate': 1.0,
         })
 
@@ -54,7 +54,7 @@ class ClientApplication:
             type=nrpc_py.SocketType.CONNECT,
             protocol=nrpc_py.ProtocolType.TCP,
             format=nrpc_py.FormatType.JSON,
-            caller='client_application_py',
+            caller='test_show_client_py',
             types=[
                 HelloRequest,
                 HelloResponse,
@@ -79,9 +79,9 @@ class ClientApplication:
             res = self.sock.cast(HelloService).Hello(req)
             print(f'SEND HelloService.Hello, 3, {res}')
 
-            # req = HelloRequest(name='tester4', value=555)
-            # res = self.sock.cast(HelloService).Hello2(req)
-            # print(f'SEND Hello, 4, {res}')
+            req = {'name': 'tester4', 'value': 555}
+            res = self.sock.cast(HelloService).Hello2(req)
+            print(f'SEND Hello, 4, {res}')
 
         self.sock.close()
 

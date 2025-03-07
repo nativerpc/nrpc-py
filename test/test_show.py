@@ -34,7 +34,7 @@ class HelloService:
     def Hello(self, request: HelloRequest) -> HelloResponse:
         pass
 
-    def Hello2(self, request: HelloRequest) -> list[HelloResponse]:
+    def Hello2(self, request: dict) -> dict:
         pass
 
 
@@ -45,7 +45,7 @@ class ServerApplication:
         self.cmd = nrpc_py.CommandLine({
             'port': 9001,
             'format': 'json',
-            'wait': 10,
+            'wait': 1000,
             'rate': 1.0,
         })
 
@@ -55,7 +55,7 @@ class ServerApplication:
             type=nrpc_py.SocketType.BIND,
             protocol=nrpc_py.ProtocolType.TCP,
             format=nrpc_py.FormatType.JSON,
-            caller='server_application_py',
+            caller='test_show_py',
             types=[
                 HelloRequest,
                 HelloResponse,
@@ -80,11 +80,11 @@ class ServerApplication:
         self.counter += 1
         return HelloResponse(f'test={self.counter}', request)
 
-    def Hello2(self, request: HelloRequest) -> list[HelloResponse]:
+    def Hello2(self, request: dict) -> dict:
         """HelloService's method"""
         print(f'CALL ServerApplication.Hello2, {self.counter}, {request}')
         self.counter += 1
-        return [HelloResponse(f'test={self.counter}', request)]
+        return {'summary': f'test={self.counter}', 'echo': request}
 
 
 
