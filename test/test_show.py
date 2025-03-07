@@ -51,7 +51,7 @@ class ServerApplication:
 
     def bind(self):
         print(f'START Server started, {self.cmd["port"]}')
-        self.sock = nrpc_py.RoutingSocket(nrpc_py.RoutingSocketOptions(
+        self.sock = nrpc_py.RoutingSocket(
             type=nrpc_py.SocketType.BIND,
             protocol=nrpc_py.ProtocolType.TCP,
             format=nrpc_py.FormatType.JSON,
@@ -61,7 +61,7 @@ class ServerApplication:
                 HelloResponse,
                 [HelloService, self],
             ]
-        ))
+        )
         self.sock.bind('127.0.0.1', self.cmd['port'])
 
     def start_client(self):

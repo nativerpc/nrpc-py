@@ -35,6 +35,7 @@ Manual and automated tests.
 
 ```
 pytest
+python test\test_build.py
 python test\test_show.py
 python test\test_array.py
 etc

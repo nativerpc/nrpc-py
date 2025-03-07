@@ -53,7 +53,7 @@ class ServerApplication:
 
         print(f'START Server started, {cmd["port"]}')
 
-        sock = nrpc_py.RoutingSocket(nrpc_py.RoutingSocketOptions(
+        sock = nrpc_py.RoutingSocket(
             type=nrpc_py.SocketType.BIND,
             protocol=nrpc_py.ProtocolType.TCP,
             format=nrpc_py.FormatType.JSON,
@@ -63,7 +63,7 @@ class ServerApplication:
                 ParentInfo,
                 [HelloService, self],
             ]
-        ))
+        )
 
         sock.bind('127.0.0.1', cmd['port'])
 

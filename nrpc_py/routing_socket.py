@@ -23,6 +23,7 @@
 #           _find_new_fields
 #           _find_new_methods
 #           _find_missing_methods
+#           client_id
 #           wait
 #           close
 #
@@ -79,7 +80,24 @@ class RoutingSocket:
     do_sync: bool
     is_ready: bool
 
-    def __init__(self, options: RoutingSocketOptions):
+    def __init__(
+            self,
+            type: SocketType,
+            protocol: ProtocolType = ProtocolType.TCP,
+            format: FormatType = FormatType.JSON,
+            caller: str = 'unknown',
+            types: list = [],
+            port: int = 0,
+    ):
+        options = RoutingSocketOptions(
+            type=type,
+            protocol=protocol,
+            format=format,
+            caller=caller,
+            types=types,
+            port=port
+        )
+        assert not isinstance(type, RoutingSocketOptions)
         self.socket_type = options.type
         self.protocol_type = options.protocol
         self.format_type = options.format
@@ -103,7 +121,7 @@ class RoutingSocket:
 
         assert self.known_types[DYNAMIC_OBJECT]
 
-    def bind(self, ip_address, port):
+    def bind(self, ip_address='127.0.0.1', port=9000):
         assert self.socket_type == SocketType.BIND
 
         self.ip_address = ip_address
@@ -113,7 +131,7 @@ class RoutingSocket:
         self.processor = threading.Thread(target=self.server_thread)
         self.processor.start()
 
-    def connect(self, ip_address, port, wait=True, sync=True):
+    def connect(self, ip_address='127.0.0.1', port=9000, wait=True, sync=True):
         assert self.socket_type == SocketType.CONNECT
 
         self.ip_address = ip_address
@@ -375,6 +393,12 @@ class RoutingSocket:
         return result_data
 
     def _add_types(self, types):
+        if isinstance(types, list) and \
+            len(types) == 2 and \
+            not isinstance(types[1], type) and \
+            not isinstance(types[1], list):
+            types = [types]
+
         for item in types:
             assert not isinstance(item, tuple)
             type_name = \
@@ -768,6 +792,10 @@ class RoutingSocket:
                     my_method_info.method_errors += \
                         f'\nMissing remote method! {service_name}.{method_name}'
                     continue
+
+    @property
+    def client_id(self):
+        return self.client_socket.client_id if self.socket_type == SocketType.CONNECT else 0
 
     def wait(self):
         try:

@@ -46,7 +46,7 @@ import sys
 import inspect
 import json
 import datetime
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, TypedDict, Type, get_args
 from enum import Enum
 
@@ -70,10 +70,10 @@ class FormatType(Enum):
 @dataclass
 class RoutingSocketOptions:
     type: SocketType
-    protocol: ProtocolType
-    format: FormatType
-    caller: str
-    types: list
+    protocol: ProtocolType = ProtocolType.TCP
+    format: FormatType = FormatType.JSON
+    types: list = field(default_factory=list)
+    caller: str = ''
     port: int = 0
 
 
@@ -620,6 +620,8 @@ def get_simple_type(item):
     if item.__name__ == 'list' and \
             len(get_args(item)) == 1:
         return f'{get_args(item)[0].__name__}[]'
+    elif item.__name__ == '_empty':
+        return DYNAMIC_OBJECT
     else:
         return item.__name__
 

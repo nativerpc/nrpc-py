@@ -40,7 +40,7 @@ class ExampleServer:
 class TestApplication:
     def start(self):
         port = 8910
-        sock1 = nrpc_py.RoutingSocket(nrpc_py.RoutingSocketOptions(
+        sock1 = nrpc_py.RoutingSocket(
             type=nrpc_py.SocketType.BIND,
             protocol=nrpc_py.ProtocolType.TCP,
             format=nrpc_py.FormatType.JSON,
@@ -49,8 +49,8 @@ class TestApplication:
                 ExampleClass,
                 [ExampleService, ExampleServer()]
             ],
-        ))
-        sock2 = nrpc_py.RoutingSocket(nrpc_py.RoutingSocketOptions(
+        )
+        sock2 = nrpc_py.RoutingSocket(
             type=nrpc_py.SocketType.CONNECT,
             protocol=nrpc_py.ProtocolType.TCP,
             format=nrpc_py.FormatType.JSON,
@@ -59,7 +59,7 @@ class TestApplication:
                 ExampleClass,
                 ExampleService
             ],
-        ))
+        )
         print(f'BIND {port}')
         sock1.bind('127.0.0.1', port)
         print(f'CONNECT {port}')
