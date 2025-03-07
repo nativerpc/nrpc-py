@@ -102,3 +102,18 @@ project(nrpc_ts VERSION 1.0.1)
                     pip install --force-reinstall staging_modules/pyzmq/dist/pyzmq-26.3.0.dev0-cp313-cp313-win_amd64.whl
     )
 
+#####################
+# Find dependencies #
+#####################
+    message(STATUS "${Yellow}Find dependencies${Reset}")
+    # find_package(pyzmq REQUIRED HINTS "staging_modules/pyzmq/build")
+    get_directory_property(DepsTargets IMPORTED_TARGETS)
+    message(STATUS "Deps: ${DepsTargets}")
+
+#################
+# Setup targets #
+#################
+    message(STATUS "${Yellow}Setup targets${Reset}")
+    get_directory_property(FinalTargets BUILDSYSTEM_TARGETS)
+    message(STATUS "Targets: none")
+

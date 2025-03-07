@@ -83,23 +83,22 @@ class RoutingSocket:
         self.socket_type = options.type
         self.protocol_type = options.protocol
         self.format_type = options.format
+        self.entry_file = os.path.basename(options.caller)
         self.ip_address = ''
         self.port = options.port
-        self.entry_file = os.path.basename(options.caller)
-        self.socket = None
-        self.processor = None
         self.is_alive = True
         self.server_socket = None
         self.client_socket = None
+        self.processor = None
         self.known_types = {}
         self.known_services = {}
         self.known_servers = {}
-        # self.postfix_mapping = {}
         self.call_count = 0
         self.do_sync = False
         self.is_ready = False
 
         self.known_types[DYNAMIC_OBJECT] = g_all_types[DYNAMIC_OBJECT]
+        
         self._add_types(options.types)
 
         assert self.known_types[DYNAMIC_OBJECT]
@@ -190,6 +189,9 @@ class RoutingSocket:
             req = self.client_socket.recv_rev()
             if not self.is_alive:
                 break
+            if self.client_socket.is_lost:
+                # print('Lost client')
+                break
             method_name = req[0].decode()
             command_parameters = json.loads(req[1].decode())
 
@@ -268,6 +270,7 @@ class RoutingSocket:
         return res
 
     def forward_call(self, client_id, method_name, params):
+        assert self.socket_type == SocketType.CONNECT
         return self.server_call(
             ServerMessage.ForwardCall.decode(),
             {
@@ -322,14 +325,8 @@ class RoutingSocket:
         return res
 
     def _incoming_call(self, method_name, request_data):
-        if isinstance(method_name, bytes):
-            method_name = method_name.decode()
-        assert '.' in method_name
-
         self.call_count += 1
         # print(f'Calling {self.call_count}, {self.socket_type}, {method_name}')
-
-        assert '.' in method_name
 
         parts = method_name.split('.')
         assert len(parts) == 2
@@ -338,26 +335,33 @@ class RoutingSocket:
         if parts[0] not in self.known_servers or \
                 parts[0] not in self.known_services:
             assert parts[0] in self.known_services
-            service_info = self.known_services[parts[0]]
-            if not service_info.service_errors:
-                service_info.service_errors = f'\nFailed invokation: {method_name}, {parts[0]}.{parts[1]}'
+            if parts[0] not in self.known_services:
+                service_info = self.known_services[parts[0]]
+                if not service_info.service_errors:
+                    service_info.service_errors = f'\nFailed invokation: {method_name}'
             return {}
 
         server = self.known_servers[parts[0]]
         service_info = self.known_services[parts[0]]
-        method1 = service_info.methods.get(parts[1], None)
 
         if not hasattr(server.instance, parts[1]) or \
-                method1 is None or \
-                method1.method_errors:
-            response_type = method1.response_type
-            result_obj = [] if response_type.endswith('[]') else self.known_types[response_type].clazz()
-            result_data = [] if response_type.endswith('[]') else {}
-            self._assign_values(response_type, result_obj, result_data, 1)
-            if not method1.method_errors:
-                method1.method_errors = f'\nFailed invokation: {method_name}, {parts[0]}.{parts[1]}'
-            return result_data
+                parts[1] not in service_info.methods or \
+                service_info.methods[parts[1]].method_errors:
+            if parts[1] in service_info.methods:
+                method1 = service_info.methods[parts[1]]
+                response_type = method1.response_type
+                result_obj = [] if response_type.endswith('[]') else self.known_types[response_type].clazz()
+                result_data = [] if response_type.endswith('[]') else {}
+                self._assign_values(response_type, result_obj, result_data, 1)
+                if not method1.method_errors:
+                    method1.method_errors = f'\nFailed invokation: {method_name}'
+                return result_data
+            else:
+                if not service_info.service_errors:
+                    service_info.service_errors = f'\nFailed invokation: {method_name}'
+                return {}
 
+        method1 = service_info.methods[parts[1]]
         method2 = getattr(server.instance, parts[1])
         request_type = method1.request_type
         response_type = method1.response_type
@@ -387,13 +391,6 @@ class RoutingSocket:
                     type_name in self.known_servers:
                 continue
 
-            # if self.drop_postfix and type_name.endswith(self.drop_postfix):
-            #     base_name = type_name.replace(self.drop_postfix, '')
-            #     self.postfix_mapping[type_name] = base_name
-            #     self.postfix_mapping[base_name] = type_name
-            #     self.postfix_mapping[type_name+'[]'] = base_name+'[]'
-            #     self.postfix_mapping[base_name+'[]'] = type_name+'[]'
-
             if type_name in g_all_types:
                 assert g_all_types[type_name].fields
                 type_info = g_all_types[type_name]
@@ -419,14 +416,15 @@ class RoutingSocket:
                     self._add_server(clazz, server_instance)
 
             else:
-                assert False
+                assert False, f'Missing metadata: {type_name}'
 
     def _add_server(self, server_type, server_instance):
         server_name = type(server_instance).__name__
-        server_instance.clazz = server_type
-        assert server_type.__name__ in self.known_services, f'Unknown server type! {server_type.__name__}'
+        service_name = server_type.__name__
+        service_info = self.known_services[service_name]
+        assert service_name in self.known_services, f'Unknown server type! {service_name}'
         methods: Dict[str, MethodInfo] = {}
-        service_info = self.known_services[server_type.__name__]
+        server_instance.clazz = server_type
 
         for method_name, method_info in service_info.methods.items():
             handler = None
@@ -477,22 +475,22 @@ class RoutingSocket:
                 continue
 
             assert server_res_type[0:-2] if server_res_type.endswith('[]') else server_res_type in self.known_types
-
+            assert handler and handler.__name__ == method_name
+                
             methods[method_name] = MethodInfo(
                 method_name=method_name,
                 request_type=server_req_type,
                 response_type=server_res_type,
                 id_value=method_info.id_value,
-                handler=handler.__name__ if hasattr(type(server_instance), method_name) else '',
                 local=True
             )
         server_info = ServerInfo(
-            name=server_name,
-            service_name=server_type,
+            server_name=server_name,
+            service_name=service_name,
             methods=methods,
             instance=server_instance,
         )
-        self.known_servers[server_type.__name__] = server_info
+        self.known_servers[service_name] = server_info
 
     def _get_app_info(self, req) -> ApplicationInfo:
         this_socket = ''
@@ -625,7 +623,6 @@ class RoutingSocket:
         )
 
     def _set_schema(self, req) -> SchemaInfo:
-        # print(f'Updating server types! {len(req["types"])}, {len(req["services"])}')
         added1 = self._find_new_fields(req, True)
         added2 = self._find_new_methods(req, True)
 
@@ -643,7 +640,7 @@ class RoutingSocket:
         added1 = self._find_new_fields(res, True)
         added2 = self._find_new_methods(res, True)
 
-        # print(f'Sync ready: 2, {len(added1)}, {len(added2)}')
+        # console.log(f'Sync ready: 2, {len(added1)}, {len(added2)}')
 
     def _sync_with_client(self):
         req = self._get_schema(None)
@@ -652,7 +649,7 @@ class RoutingSocket:
         added2 = self._find_new_methods(res, False)
         assert len(added1) == 0
         assert len(added2) == 0
-        # print(f'Sync ready: 3, {len(added1)}, {len(added2)}')
+        # console.log(f'Sync ready: 3, {len(added1)}, {len(added2)}')
 
     def _find_new_fields(self, schema, do_add):
         to_add = []
@@ -666,6 +663,7 @@ class RoutingSocket:
                 known_type = self.known_types[type_name]
                 for field_info in type_fields:
                     field_name = field_info['field_name']
+                    field_type = field_info['field_type']
                     assert field_name
                     assert 'id_value' in field_info
                     if field_name not in known_type.fields:
@@ -677,6 +675,7 @@ class RoutingSocket:
                         to_add.append({
                             'type_name': type_name,
                             'field_name': field_name,
+                            'field_type': field_type,
                             'id_value': field_info['id_value']
                         })
                     else:
@@ -696,14 +695,12 @@ class RoutingSocket:
                 assert known_fields
                 known_fields.fields[item['field_name']] = FieldInfo(
                     field_name=item['field_name'],
-                    id_value=item['id_value'],
                     field_type=item['type_name'],
+                    id_value=item['id_value'],
                     offset=-1,
                     size=-1,
                     local=False
                 )
-            temp = self._find_new_fields(schema, False)
-            assert len(temp) == 0
 
         return to_add
 
@@ -731,7 +728,6 @@ class RoutingSocket:
                             'service_name': service_name,
                             'method_name': method_name,
                             'id_value': method_info['id_value'],
-                            'handler': method_name,
                             'request_type': method_info['request_type'],
                             'response_type': method_info['response_type'],
                         })
@@ -740,7 +736,8 @@ class RoutingSocket:
                         if method_info['id_value'] != my_method.id_value:
                             my_method.method_errors += \
                                 f'\nMethod numbering mismatch! {service_name}.{method_name}, ' \
-                                f'{method_info["id_value"]} != {my_method.id_value}'
+                                f'{method_info["id_value"]}, {my_method.id_value}'
+                            continue
 
         # Add missing methods
         #
@@ -752,12 +749,8 @@ class RoutingSocket:
                         request_type=item['request_type'],
                         response_type=item['response_type'],
                         id_value=item['id_value'],
-                        handler=item['handler'],
                         local=False
                 )
-
-            temp = self._find_new_methods(schema, False)
-            assert len(temp) == 0
 
         return to_add
 
@@ -790,9 +783,13 @@ class RoutingSocket:
     def close(self):
         self.is_alive = False
         if self.socket_type == SocketType.BIND:
+            self.server_socket.is_alive = False
+        else:
+            self.client_socket.is_alive = False
+        self.processor.join()
+        if self.socket_type == SocketType.BIND:
             self.server_socket.close()
         else:
             self.client_socket.close()
-        self.processor.join()
         self.server_socket = None
         self.client_socket = None

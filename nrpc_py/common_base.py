@@ -96,6 +96,7 @@ class WebSocketInfo:
 
 
 class SocketMetadataInfo(TypedDict):
+    server_id: int
     client_id: int
     lang: str
     ip_address: str
@@ -104,8 +105,10 @@ class SocketMetadataInfo(TypedDict):
     host: str
     entry_file: str
     start_time: str
-    client_signature: bytes
-    client_signature_rev: bytes
+    client_signature: str
+    client_signature_rev: str
+    server_signature: str
+    server_signature_rev: str
 
 
 @dataclass
@@ -132,7 +135,6 @@ class ApplicationInfo(TypedDict):
     is_ready: bool
     socket_type: str
     protocol_type: str
-    methods: int
     types: int
     services: int
     servers: int
@@ -252,16 +254,14 @@ class MethodInfo:
     request_type: str
     response_type: str
     id_value: int
-    handler: str
     local: bool
     method_errors: str
 
-    def __init__(self, method_name, request_type, response_type, id_value, handler, local):
+    def __init__(self, method_name, request_type, response_type, id_value, local):
         self.method_name = method_name
         self.request_type = request_type
         self.response_type = response_type
         self.id_value = id_value
-        self.handler = handler
         self.local = local
         self.method_errors = ''
 
@@ -299,16 +299,18 @@ class ServiceInfo:
 
 
 class ServerInfo:
-    name: str
+    server_name: str
     service_name: str
     instance: any
     methods: Dict[str, MethodInfo]
+    server_errors: str
 
-    def __init__(self, name, service_name, instance, methods):
-        self.name = name
+    def __init__(self, server_name, service_name, instance, methods):
+        self.server_name = server_name
         self.service_name = service_name
         self.instance = instance
         self.methods = methods
+        self.server_errors = ''
 
 
 g_all_types: Dict[str, ClassInfo] = {}
@@ -388,12 +390,12 @@ def register_class(clazz: Type, pending_fields: dict):
             ret_type = get_simple_type(sig.return_annotation)
             ret_type_nl = ret_type[0: len(ret_type) - 2] if ret_type.endswith('[]') else ret_type
             assert ret_type_nl in g_all_types
+            assert key == handler.__name__
             method_infos[key] = MethodInfo(
                 method_name=key,
                 request_type=req_type,
                 response_type=ret_type,
                 id_value=id_value,
-                handler=handler.__name__,
                 local=True
             )
 
@@ -614,6 +616,7 @@ def get_class_string(type_name, obj_data):
 
 
 def get_simple_type(item):
+    """Converts 'list[X]' into 'X[]'."""
     if item.__name__ == 'list' and \
             len(get_args(item)) == 1:
         return f'{get_args(item)[0].__name__}[]'

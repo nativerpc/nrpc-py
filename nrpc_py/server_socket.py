@@ -450,5 +450,7 @@ class ServerSocket:
             if item:
                 try:
                     item.close()
-                except:
+                except:  # noqa
                     pass
+
+        self.zmq_context = None

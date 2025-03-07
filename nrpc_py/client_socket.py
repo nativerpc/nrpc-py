@@ -44,14 +44,14 @@ class ClientSocket:
     is_connected: bool
     is_validated_: bool
     is_lost: bool
-    last_error: any
+    client_errors: str
     metadata: SocketMetadataInfo
     server_metadata: SocketMetadataInfo
     zmq_context: zmq.Context
     zmq_client: zmq.Socket
     zmq_client_rev: zmq.Socket
     zmq_monitor: zmq.Socket
-    zmq_monitor_thread: threading.ThreadError
+    zmq_monitor_thread: threading.Thread
     request_lock: threading.Lock
     norm_messages_: list[bytes]
     rev_messages_: list[bytes]
@@ -70,6 +70,7 @@ class ClientSocket:
         self.is_connected = False
         self.is_validated_ = False
         self.is_lost = False
+        self.client_errors = ''
         self.metadata = SocketMetadataInfo(
             client_id=None,
             lang='python',
@@ -106,9 +107,11 @@ class ClientSocket:
         self.zmq_monitor_thread = threading.Thread(target=self._track_client)
         self.zmq_monitor_thread.start()
 
-        while not self.is_connected:
+        while self.is_alive and not self.is_connected:
             time.sleep(0.1)
-
+        if not self.is_alive:
+            return
+        
         resp = None
         with self.request_lock:
             self.zmq_client.send_multipart([
@@ -265,6 +268,7 @@ class ClientSocket:
                 self.is_connected = True
             elif event_id == zmq.Event.DISCONNECTED:
                 self.is_lost = True
+                self.client_errors += '\nClient disconnected'
 
             # print(
             #     'MONITOR',
@@ -395,5 +399,7 @@ class ClientSocket:
             if item:
                 try:
                     item.close()
-                except:
+                except:  # noqa
                     pass
+
+        self.zmq_context = None
