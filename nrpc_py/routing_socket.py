@@ -352,11 +352,20 @@ class RoutingSocket:
 
         if parts[0] not in self.known_servers or \
                 parts[0] not in self.known_services:
-            assert parts[0] in self.known_services
-            if parts[0] not in self.known_services:
+            if parts[0] in self.known_services:
                 service_info = self.known_services[parts[0]]
                 if not service_info.service_errors:
-                    service_info.service_errors = f'\nFailed invokation: {method_name}'
+                    service_info.service_errors += f'\nFailed invokation: {method_name}'
+                
+            elif parts[0] in g_all_services:
+                global_service_info = g_all_services[parts[0]]
+                if not global_service_info.service_errors:
+                    global_service_info.service_errors += f'\nFailed invokation: {method_name}'
+            
+            else:
+                # TODO log somewhere else
+                pass
+
             return {}
 
         server = self.known_servers[parts[0]]
@@ -372,11 +381,11 @@ class RoutingSocket:
                 result_data = [] if response_type.endswith('[]') else {}
                 self._assign_values(response_type, result_obj, result_data, 1)
                 if not method1.method_errors:
-                    method1.method_errors = f'\nFailed invokation: {method_name}'
+                    method1.method_errors += f'\nFailed invokation: {method_name}'
                 return result_data
             else:
                 if not service_info.service_errors:
-                    service_info.service_errors = f'\nFailed invokation: {method_name}'
+                    service_info.service_errors += f'\nFailed invokation: {method_name}'
                 return {}
 
         method1 = service_info.methods[parts[1]]
