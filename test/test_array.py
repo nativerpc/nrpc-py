@@ -57,7 +57,7 @@ class ServerApplication:
             type=nrpc_py.SocketType.BIND,
             protocol=nrpc_py.ProtocolType.TCP,
             format=nrpc_py.FormatType.JSON,
-            caller='test_array_py_server',
+            name='test_array_py_server',
             types=[
                 ChildInfo,
                 ParentInfo,

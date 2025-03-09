@@ -6,13 +6,13 @@ import nrpc_py
     'client_id': 1,
     'is_validated': 2,
     'is_lost': 3,
-    'entry_file': 4,
+    'socket_name': 4,
 })
 class ExampleClass:
     client_id: int = 0
     is_validated: bool = False
     is_lost: bool = False
-    entry_file: str = '-'
+    socket_name: str = '-'
 
 
 @rpcclass({
@@ -44,7 +44,7 @@ class TestApplication:
             type=nrpc_py.SocketType.BIND,
             protocol=nrpc_py.ProtocolType.TCP,
             format=nrpc_py.FormatType.JSON,
-            caller='test_routing_server_py',
+            name='test_routing_server_py',
             types=[
                 ExampleClass,
                 [ExampleService, ExampleServer()]
@@ -54,7 +54,7 @@ class TestApplication:
             type=nrpc_py.SocketType.CONNECT,
             protocol=nrpc_py.ProtocolType.TCP,
             format=nrpc_py.FormatType.JSON,
-            caller='test_routing_client_py',
+            name='test_routing_client_py',
             types=[
                 ExampleClass,
                 ExampleService

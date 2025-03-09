@@ -13,13 +13,13 @@ import nrpc_py
     'client_id': 1,
     'is_validated': 2,
     'is_lost': 3,
-    'entry_file': 4,
+    'socket_name': 4,
 })
 class SimpleData:
     client_id: int = 0
     is_validated: bool = False
     is_lost: bool = False
-    entry_file: str = '-'
+    socket_name: str = '-'
 
 
 @rpcclass({
@@ -44,7 +44,7 @@ class TestApplication:
         print('CMD', cmd.as_string())
         assert isinstance(cmd['port'], int)
         assert isinstance(cmd['rate'], float)
-        test = SimpleData(client_id=100, is_validated=True, entry_file='abc.py')
+        test = SimpleData(client_id=100, is_validated=True, socket_name='abc.py')
         temp = {}
         other = SimpleData()
         x = [test, other]

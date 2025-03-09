@@ -33,7 +33,7 @@ import inspect
 import json
 import sys
 import os
-from typing import Dict, TypeVar, Type
+from typing import Dict, TypeVar, Generic, Type, cast as castex, List
 from .common_base import (
     SocketType,
     ProtocolType,
@@ -66,7 +66,7 @@ class RoutingSocket:
     socket_type: SocketType
     protocol_type: ProtocolType
     format_type: FormatType
-    entry_file: str
+    socket_name: str
     ip_address: str
     port: int
     is_alive: bool
@@ -85,7 +85,7 @@ class RoutingSocket:
             type: SocketType,
             protocol: ProtocolType = ProtocolType.TCP,
             format: FormatType = FormatType.JSON,
-            caller: str = 'unknown',
+            name: str = 'unknown',
             types: list = [],
             port: int = 0,
     ):
@@ -93,7 +93,7 @@ class RoutingSocket:
             type=type,
             protocol=protocol,
             format=format,
-            caller=caller,
+            name=name,
             types=types,
             port=port
         )
@@ -101,7 +101,7 @@ class RoutingSocket:
         self.socket_type = options.type
         self.protocol_type = options.protocol
         self.format_type = options.format
-        self.entry_file = os.path.basename(options.caller)
+        self.socket_name = os.path.basename(options.name)
         self.ip_address = ''
         self.port = options.port
         self.is_alive = True
@@ -126,7 +126,7 @@ class RoutingSocket:
 
         self.ip_address = ip_address
         self.port = port
-        self.server_socket = ServerSocket(ip_address, port, port + 10000, self.entry_file)
+        self.server_socket = ServerSocket(ip_address, port, port + 10000, self.socket_name)
         self.server_socket.bind()
         self.processor = threading.Thread(target=self.server_thread)
         self.processor.start()
@@ -136,7 +136,7 @@ class RoutingSocket:
 
         self.ip_address = ip_address
         self.port = port
-        self.client_socket = ClientSocket(ip_address, port, port + 10000, self.entry_file)
+        self.client_socket = ClientSocket(ip_address, port, port + 10000, self.socket_name)
         self.do_sync = sync
         self.processor = threading.Thread(target=self.client_thread)
         self.processor.start()
@@ -145,8 +145,8 @@ class RoutingSocket:
             while not self.is_ready:
                 time.sleep(0.1)
 
-    def cast(self, clazz: Type[X], client_id=0) -> ServiceClient[X]:
-        return ServiceClient[X](self, clazz, client_id)
+    def cast(self, clazz: X, client_id=0) -> X:
+        return ServiceClient(self, clazz if isinstance(clazz, type) else clazz.__class__, client_id)
 
     def server_thread(self):
         assert self.socket_type == SocketType.BIND
@@ -530,7 +530,7 @@ class RoutingSocket:
                     client_id=item.client_id,
                     is_validated=item.is_validated,
                     is_lost=item.is_lost,
-                    entry_file=item.client_metadata['entry_file'],
+                    socket_name=item.client_metadata['socket_name'],
                 ))
 
         return ApplicationInfo(
@@ -545,7 +545,7 @@ class RoutingSocket:
             this_socket=this_socket,
             client_count=0 if self.socket_type == SocketType.CONNECT else len(self.server_socket.clients),
             clients=clients,
-            entry_file=self.entry_file,
+            socket_name=self.socket_name,
             ip_address=self.ip_address,
             port=self.port,
             format='json' if self.format_type == FormatType.JSON else 'binary',
@@ -613,7 +613,7 @@ class RoutingSocket:
                     client_id=item.client_id,
                     is_validated=item.is_validated,
                     is_lost=item.is_lost,
-                    entry_file=item.client_metadata['entry_file'],
+                    socket_name=item.client_metadata['socket_name'],
                     client_metadata=item.client_metadata,
                 ))
 
@@ -621,7 +621,7 @@ class RoutingSocket:
         if self.socket_type == SocketType.CONNECT:
             servers.append(SchemaInfo.SchemaServerInfo(
                 port=self.client_socket.port,
-                entry_file=self.client_socket.server_metadata['entry_file'],
+                socket_name=self.client_socket.server_metadata['socket_name'],
                 server_metadata=self.client_socket.server_metadata,
             ))
 
@@ -643,7 +643,7 @@ class RoutingSocket:
             this_socket=this_socket,
             clients=clients,
             servers=servers,
-            entry_file=self.entry_file,
+            socket_name=self.socket_name,
         )
 
     def _set_schema(self, req) -> SchemaInfo:

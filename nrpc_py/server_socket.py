@@ -38,7 +38,7 @@ class ServerSocket:
     ip_address: str
     port: int
     port_rev: int
-    entry_file: str
+    socket_name: str
     next_index: int
     server_signature: bytes
     server_signature_rev: bytes
@@ -54,12 +54,12 @@ class ServerSocket:
     norm_messages_: list[bytes]
     rev_messages_: list[bytes]
 
-    def __init__(self, ip_address, port, port_rev, entry_file):
+    def __init__(self, ip_address, port, port_rev, socket_name):
         self.server_id = 0
         self.ip_address = ip_address
         self.port = port
         self.port_rev = port_rev
-        self.entry_file = entry_file
+        self.socket_name = socket_name
         self.next_index = 0
         self.server_signature = b'server:0'
         self.server_signature_rev = b'rev:server:0'
@@ -71,7 +71,7 @@ class ServerSocket:
             main_port=port,
             main_port_rev=port_rev,
             host=_socket.gethostname(),
-            entry_file=self.entry_file,
+            socket_name=self.socket_name,
             start_time=datetime.datetime.now().isoformat(),
             server_signature=base64.b64encode(self.server_signature).decode('ascii'),
             server_signature_rev=base64.b64encode(self.server_signature_rev).decode('ascii'),

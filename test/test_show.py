@@ -55,7 +55,7 @@ class ServerApplication:
             type=nrpc_py.SocketType.BIND,
             protocol=nrpc_py.ProtocolType.TCP,
             format=nrpc_py.FormatType.JSON,
-            caller='test_show_py',
+            name='test_show_py',
             types=[
                 HelloRequest,
                 HelloResponse,

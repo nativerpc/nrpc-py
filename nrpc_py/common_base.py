@@ -73,7 +73,7 @@ class RoutingSocketOptions:
     protocol: ProtocolType = ProtocolType.TCP
     format: FormatType = FormatType.JSON
     types: list = field(default_factory=list)
-    caller: str = ''
+    name: str = ''
     port: int = 0
 
 
@@ -103,7 +103,7 @@ class SocketMetadataInfo(TypedDict):
     main_port: int
     main_port_rev: int
     host: str
-    entry_file: str
+    socket_name: str
     start_time: str
     client_signature: str
     client_signature_rev: str
@@ -127,7 +127,7 @@ class ApplicationInfo(TypedDict):
         client_id: int
         is_validated: bool
         is_lost: bool
-        entry_file: str
+        socket_name: str
 
     server_id: int
     client_id: int
@@ -143,7 +143,7 @@ class ApplicationInfo(TypedDict):
     client_count: int
     clients: list[AppClientInfo]
     client_ids: list[int]
-    entry_file: str
+    socket_name: str
     ip_address: str
     port: int
     format: str
@@ -188,12 +188,12 @@ class SchemaInfo(TypedDict):
         client_id: int
         is_validated: bool
         is_lost: bool
-        entry_file: str
+        socket_name: str
         client_metadata: SocketMetadataInfo
 
     class SchemaServerInfo(TypedDict):
         port: int
-        entry_file: str
+        socket_name: str
         server_metadata: SocketMetadataInfo
 
     server_id: int
@@ -207,7 +207,7 @@ class SchemaInfo(TypedDict):
     this_socket: str
     clients: list[SchemaClientInfo]
     servers: list[SchemaServerInfo]
-    entry_file: str
+    socket_name: str
 
 
 class FieldType(Enum):

@@ -2,6 +2,7 @@ import nrpc_py
 import time
 import sys
 import subprocess
+from typing import cast
 from nrpc_py import rpcclass
 
 
@@ -38,6 +39,8 @@ class HelloService:
 
 
 class ClientApplication:
+    sock: nrpc_py.RoutingSocket
+
     def __init__(self):
         self.sock = None
         self.counter = 0
@@ -54,7 +57,7 @@ class ClientApplication:
             type=nrpc_py.SocketType.CONNECT,
             protocol=nrpc_py.ProtocolType.TCP,
             format=nrpc_py.FormatType.JSON,
-            caller='test_show_client_py',
+            name='test_show_client_py',
             types=[
                 HelloRequest,
                 HelloResponse,

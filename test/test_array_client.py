@@ -56,7 +56,7 @@ class ClientApplication:
             type=nrpc_py.SocketType.CONNECT,
             protocol=nrpc_py.ProtocolType.TCP,
             format=nrpc_py.FormatType.JSON,
-            caller='test_array_py',
+            name='test_array_py',
             types=[
                 ChildInfo,
                 ParentInfo,

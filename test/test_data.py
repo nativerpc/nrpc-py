@@ -8,10 +8,10 @@ class AppInfo(TypedDict):
         client_id: int
         is_validated: bool
         is_lost: bool
-        entry_file: str
+        socket_name: str
 
     clients: list[AppClientInfo]
-    entry_file: str
+    socket_name: str
 
 
 class TestApplication:
